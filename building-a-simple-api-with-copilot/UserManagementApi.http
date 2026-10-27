@@ -1,0 +1,50 @@
+@UserManagementApi_HostAddress = http://localhost:5094
+
+### Register a user (anonymous)
+# @name register
+POST {{UserManagementApi_HostAddress}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "password": "Sup3rSecret!"
+}
+
+### Log in to get a token (anonymous)
+# @name login
+POST {{UserManagementApi_HostAddress}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "jane@example.com",
+  "password": "Sup3rSecret!"
+}
+
+###
+@token = {{login.response.body.$.token}}
+@userId = {{register.response.body.$.id}}
+
+### List users
+GET {{UserManagementApi_HostAddress}}/api/users
+Authorization: Bearer {{token}}
+
+### Get one user
+GET {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{token}}
+
+### Update yourself (changing the email also changes the Id)
+PUT {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Jane Smith"
+}
+
+### Delete yourself
+DELETE {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{token}}
+
+### Without a token -> 401
+GET {{UserManagementApi_HostAddress}}/api/users
