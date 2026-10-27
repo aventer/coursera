@@ -84,6 +84,6 @@ public class UsersController(IUserService users, ITokenService tokens) : Control
     private bool IsCurrentUser(string id)
     {
         string? subject = User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
-        return string.Equals(subject, id, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(subject, id, StringComparison.Ordinal);
     }
 }

@@ -1,3 +1,4 @@
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using Org.BouncyCastle.Crypto.Generators;
@@ -12,6 +13,9 @@ public class User
 
     // Unique Identifier for the User that is a combination of the IdSeed and the Email as a hash; (IdSeed + Email) = Hash
     public byte[] Id { get; private set; } = [];
+
+    // Id as unpadded base64url (RFC 4648 §5): short and safe to use in URLs; case-sensitive, so compare it ordinally
+    public string EncodedId => Base64Url.EncodeToString(Id);
 
     public string Name { get; set; } = null!;
 

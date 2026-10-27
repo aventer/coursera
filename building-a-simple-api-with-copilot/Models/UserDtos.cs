@@ -24,6 +24,6 @@ public record LoginResponse(string Token, DateTime ExpiresAt);
 // Public view of a User; never exposes the password hash
 public record UserResponse(string Id, string Name, string Email)
 {
-    // Id is returned as a hex string so it can be used safely in URLs
-    public static UserResponse From(User user) => new(Convert.ToHexString(user.Id), user.Name, user.Email);
+    // Id is returned base64url encoded so it can be used safely in URLs
+    public static UserResponse From(User user) => new(user.EncodedId, user.Name, user.Email);
 }

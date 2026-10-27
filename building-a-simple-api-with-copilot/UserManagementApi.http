@@ -1,6 +1,13 @@
 @UserManagementApi_HostAddress = http://localhost:5094
 
-### Register a user (anonymous)
+# Test suite for the Users API. Run the requests top to bottom; each one states the expected status.
+# The data store is in-memory, so restart the app to reset it before running the suite again.
+
+##############################################################################
+# Registration
+##############################################################################
+
+### Register Jane -> 201 Created (Location header points at the new user)
 # @name register
 POST {{UserManagementApi_HostAddress}}/api/users
 Content-Type: application/json
@@ -11,7 +18,60 @@ Content-Type: application/json
   "password": "Sup3rSecret!"
 }
 
-### Log in to get a token (anonymous)
+### Register Bob (second user for authorization tests) -> 201 Created
+# @name registerBob
+POST {{UserManagementApi_HostAddress}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Bob Builder",
+  "email": "bob@example.com",
+  "password": "B0bPassword!"
+}
+
+### Register with an email that is already taken (case and whitespace are normalized) -> 409 Conflict
+POST {{UserManagementApi_HostAddress}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Jane Again",
+  "email": "  JANE@example.com ",
+  "password": "An0therSecret!"
+}
+
+### Register with an invalid email -> 400 Bad Request
+POST {{UserManagementApi_HostAddress}}/api/users
+Content-Type: application/json
+
+{
+  "name": "No Email",
+  "email": "not-an-email",
+  "password": "Sup3rSecret!"
+}
+
+### Register with a password shorter than 8 characters -> 400 Bad Request
+POST {{UserManagementApi_HostAddress}}/api/users
+Content-Type: application/json
+
+{
+  "name": "Short Password",
+  "email": "short@example.com",
+  "password": "short"
+}
+
+### Register with missing fields -> 400 Bad Request
+POST {{UserManagementApi_HostAddress}}/api/users
+Content-Type: application/json
+
+{
+  "email": "missing@example.com"
+}
+
+##############################################################################
+# Login
+##############################################################################
+
+### Log in as Jane -> 200 OK with a token
 # @name login
 POST {{UserManagementApi_HostAddress}}/api/users/login
 Content-Type: application/json
@@ -21,19 +81,93 @@ Content-Type: application/json
   "password": "Sup3rSecret!"
 }
 
+### Log in as Bob -> 200 OK with a token
+# @name loginBob
+POST {{UserManagementApi_HostAddress}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "bob@example.com",
+  "password": "B0bPassword!"
+}
+
+### Log in with the wrong password -> 401 Unauthorized
+POST {{UserManagementApi_HostAddress}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "jane@example.com",
+  "password": "WrongPassword!"
+}
+
+### Log in with an unknown email -> 401 Unauthorized
+POST {{UserManagementApi_HostAddress}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "nobody@example.com",
+  "password": "Sup3rSecret!"
+}
+
 ###
 @token = {{login.response.body.$.token}}
 @userId = {{register.response.body.$.id}}
+@bobToken = {{loginBob.response.body.$.token}}
+@bobId = {{registerBob.response.body.$.id}}
 
-### List users
+##############################################################################
+# Authentication
+##############################################################################
+
+### List users without a token -> 401 Unauthorized
+GET {{UserManagementApi_HostAddress}}/api/users
+
+### List users with a malformed token -> 401 Unauthorized
+GET {{UserManagementApi_HostAddress}}/api/users
+Authorization: Bearer not-a-real-token
+
+##############################################################################
+# Reading users
+##############################################################################
+
+### List users -> 200 OK with Jane and Bob (no password hashes)
 GET {{UserManagementApi_HostAddress}}/api/users
 Authorization: Bearer {{token}}
 
-### Get one user
+### Get Jane -> 200 OK
 GET {{UserManagementApi_HostAddress}}/api/users/{{userId}}
 Authorization: Bearer {{token}}
 
-### Update yourself (changing the email also changes the Id)
+### Any signed-in user can read other users: Bob gets Jane -> 200 OK
+GET {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{bobToken}}
+
+### Get a user that does not exist (32 zero bytes, base64url encoded) -> 404 Not Found
+GET {{UserManagementApi_HostAddress}}/api/users/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+Authorization: Bearer {{token}}
+
+##############################################################################
+# Authorization: users may only change themselves
+##############################################################################
+
+### Bob tries to update Jane -> 403 Forbidden
+PUT {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{bobToken}}
+Content-Type: application/json
+
+{
+  "name": "Hacked by Bob"
+}
+
+### Bob tries to delete Jane -> 403 Forbidden
+DELETE {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{bobToken}}
+
+##############################################################################
+# Updating users
+##############################################################################
+
+### Jane updates her name -> 200 OK with the new name and the same Id
 PUT {{UserManagementApi_HostAddress}}/api/users/{{userId}}
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -42,9 +176,120 @@ Content-Type: application/json
   "name": "Jane Smith"
 }
 
-### Delete yourself
-DELETE {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+### Jane tries to take Bob's email -> 409 Conflict (and nothing is changed)
+PUT {{UserManagementApi_HostAddress}}/api/users/{{userId}}
 Authorization: Bearer {{token}}
+Content-Type: application/json
 
-### Without a token -> 401
+{
+  "email": "bob@example.com"
+}
+
+### Jane sends an invalid update -> 400 Bad Request
+PUT {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "not-an-email",
+  "password": "short"
+}
+
+### Jane changes her password -> 200 OK
+PUT {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "password": "N3wSecret!"
+}
+
+### Log in with the old password -> 401 Unauthorized
+POST {{UserManagementApi_HostAddress}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "jane@example.com",
+  "password": "Sup3rSecret!"
+}
+
+### Log in with the new password -> 200 OK
+POST {{UserManagementApi_HostAddress}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "jane@example.com",
+  "password": "N3wSecret!"
+}
+
+### Jane changes her email -> 200 OK with a NEW Id (the Id is derived from the email)
+# @name changeEmail
+PUT {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "email": "jane.smith@example.com"
+}
+
+###
+@newUserId = {{changeEmail.response.body.$.id}}
+
+### The old Id no longer exists -> 404 Not Found
+GET {{UserManagementApi_HostAddress}}/api/users/{{userId}}
+Authorization: Bearer {{bobToken}}
+
+### The new Id resolves -> 200 OK
+GET {{UserManagementApi_HostAddress}}/api/users/{{newUserId}}
+Authorization: Bearer {{bobToken}}
+
+### Jane's old token still carries the old Id, so it cannot modify the new Id -> 403 Forbidden
+PUT {{UserManagementApi_HostAddress}}/api/users/{{newUserId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "name": "Jane S."
+}
+
+### Jane logs in again with her new email -> 200 OK
+# @name loginNewEmail
+POST {{UserManagementApi_HostAddress}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "jane.smith@example.com",
+  "password": "N3wSecret!"
+}
+
+###
+@newToken = {{loginNewEmail.response.body.$.token}}
+
+##############################################################################
+# Deleting users
+##############################################################################
+
+### Jane deletes herself -> 204 No Content
+DELETE {{UserManagementApi_HostAddress}}/api/users/{{newUserId}}
+Authorization: Bearer {{newToken}}
+
+### Deleting again -> 404 Not Found
+DELETE {{UserManagementApi_HostAddress}}/api/users/{{newUserId}}
+Authorization: Bearer {{newToken}}
+
+### Jane is gone -> 404 Not Found
+GET {{UserManagementApi_HostAddress}}/api/users/{{newUserId}}
+Authorization: Bearer {{bobToken}}
+
+### Updating a deleted user -> 404 Not Found
+PUT {{UserManagementApi_HostAddress}}/api/users/{{newUserId}}
+Authorization: Bearer {{newToken}}
+Content-Type: application/json
+
+{
+  "name": "Ghost"
+}
+
+### Only Bob is left -> 200 OK with a single user
 GET {{UserManagementApi_HostAddress}}/api/users
+Authorization: Bearer {{bobToken}}

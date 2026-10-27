@@ -8,11 +8,17 @@ public partial class Program
     {
         var builder = WebApplication.CreateBuilder(args);
 
+        // Write logs to the console; registered explicitly so it doesn't rely on the host defaults
+        builder.Logging.AddConsole();
+
         builder.Services.AddOpenApi();
         builder.Services.AddControllers();
 
-        // Application services
-        builder.Services.AddSingleton<IUserService, InMemoryUserService>();
+        // Data store: in-memory for now; register a different IUserRepository (e.g. database-backed) to swap it out
+        builder.Services.AddSingleton<IUserRepository, InMemoryUserRepository>();
+
+        // Application services; scoped so they also work with scoped repositories such as an EF Core DbContext
+        builder.Services.AddScoped<IUserService, UserService>();
 
         var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
             ?? throw new InvalidOperationException($"Missing '{JwtOptions.SectionName}' configuration section.");

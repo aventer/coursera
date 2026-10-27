@@ -35,7 +35,7 @@ public class JwtTokenService(JwtOptions options) : ITokenService
             Expires = expiresAt,
             Subject = new ClaimsIdentity(
             [
-                new Claim(JwtRegisteredClaimNames.Sub, Convert.ToHexString(user.Id)),
+                new Claim(JwtRegisteredClaimNames.Sub, user.EncodedId),
                 new Claim(JwtRegisteredClaimNames.Email, user.Email),
                 new Claim(JwtRegisteredClaimNames.Name, user.Name)
             ]),

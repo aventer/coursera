@@ -15,98 +15,61 @@ public interface IUserService
     UserOperationResult Delete(string id);
 }
 
-// In-memory store keyed by the hex string of the User Id; data is lost when the app restarts
-public class InMemoryUserService : IUserService
+// Business rules for Users; persistence is delegated to whichever IUserRepository is registered
+public class UserService(IUserRepository repository) : IUserService
 {
-    private readonly Dictionary<string, User> _users = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Lock _lock = new();
+    public IReadOnlyList<User> GetAll() => repository.GetAll();
 
-    public IReadOnlyList<User> GetAll()
-    {
-        lock (_lock)
-        {
-            return [.. _users.Values];
-        }
-    }
+    public User? GetById(string id) => repository.GetById(id);
 
-    public User? GetById(string id)
-    {
-        lock (_lock)
-        {
-            return _users.GetValueOrDefault(id);
-        }
-    }
-
-    public User? GetByEmail(string email)
-    {
-        string normalized = email.Trim().ToLowerInvariant();
-        lock (_lock)
-        {
-            return _users.Values.FirstOrDefault(u => u.Email == normalized);
-        }
-    }
+    public User? GetByEmail(string email) => repository.GetByEmail(email);
 
     public (UserOperationResult Result, User? User) Create(string name, string email, string password)
     {
-        // Hash outside the lock; BCrypt is deliberately slow
         var user = new User(name, email, password);
-
-        lock (_lock)
-        {
-            if (_users.Values.Any(u => u.Email == user.Email))
-            {
-                return (UserOperationResult.EmailTaken, null);
-            }
-
-            _users[KeyOf(user)] = user;
-            return (UserOperationResult.Success, user);
-        }
+        return repository.TryAdd(user)
+            ? (UserOperationResult.Success, user)
+            : (UserOperationResult.EmailTaken, null);
     }
 
     public (UserOperationResult Result, User? User) Update(string id, string? name, string? email, string? password)
     {
-        lock (_lock)
+        var user = repository.GetById(id);
+        if (user is null)
         {
-            if (!_users.TryGetValue(id, out var user))
-            {
-                return (UserOperationResult.NotFound, null);
-            }
-
-            if (email is not null)
-            {
-                string normalized = email.Trim().ToLowerInvariant();
-                if (_users.Values.Any(u => u != user && u.Email == normalized))
-                {
-                    return (UserOperationResult.EmailTaken, null);
-                }
-
-                // Changing the Email re-derives the Id, so the User has to be re-keyed
-                _users.Remove(id);
-                user.Email = normalized;
-                _users[KeyOf(user)] = user;
-            }
-
-            if (name is not null)
-            {
-                user.Name = name.Trim();
-            }
-
-            if (password is not null)
-            {
-                user.ChangePassword(password);
-            }
-
-            return (UserOperationResult.Success, user);
+            return (UserOperationResult.NotFound, null);
         }
+
+        // Checked before anything is changed so a rejected update leaves the User untouched
+        if (email is not null)
+        {
+            var existing = repository.GetByEmail(email);
+            if (existing is not null && existing != user)
+            {
+                return (UserOperationResult.EmailTaken, null);
+            }
+
+            // Changing the Email re-derives the Id
+            user.Email = email;
+        }
+
+        if (name is not null)
+        {
+            user.Name = name.Trim();
+        }
+
+        if (password is not null)
+        {
+            user.ChangePassword(password);
+        }
+
+        return repository.Update(id, user)
+            ? (UserOperationResult.Success, user)
+            : (UserOperationResult.NotFound, null);
     }
 
     public UserOperationResult Delete(string id)
     {
-        lock (_lock)
-        {
-            return _users.Remove(id) ? UserOperationResult.Success : UserOperationResult.NotFound;
-        }
+        return repository.Remove(id) ? UserOperationResult.Success : UserOperationResult.NotFound;
     }
-
-    private static string KeyOf(User user) => Convert.ToHexString(user.Id);
 }
